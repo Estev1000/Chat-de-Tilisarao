@@ -5,6 +5,7 @@ export default io => {
   let users = {};
 
   io.on('connection', async socket => {
+
     // Notificar a todos cuando un usuario inicia transmisión en vivo
     socket.on('user-started-live', (data) => {
       // data: { from }

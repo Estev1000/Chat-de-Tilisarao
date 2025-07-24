@@ -1,7 +1,21 @@
 // Versión integrada con streaming + chat
 $(function () {
   // socket.io client side connection
-  const socket = io.connect();
+  let reconnectAttempts = 0;
+
+function connectSocket() {
+  const socket = io.connect({ reconnectionAttempts: 5 });
+  
+  socket.on('reconnect_failed', () => {
+    if(reconnectAttempts < 5) {
+      setTimeout(connectSocket, 2000);
+      reconnectAttempts++;
+    }
+  });
+  return socket;
+}
+
+const socket = connectSocket();
 
   // obtaining DOM elements from the Chat Interface
   const $messageForm = $("#message-form");
@@ -372,6 +386,7 @@ socket.on('message-deleted', function(data) {
   const $localVideo = $('#localVideo');
   const $remoteVideo = $('#remoteVideo');
 
+
   // Mostrar solo una ventana de video a la vez
   function showLocal() {
     $('#localVideoCol').removeClass('d-none');
@@ -502,7 +517,6 @@ function startWatchingLive(targetUser) {
     // Permitir que el host también escriba en su propio chat en vivo
     let liveHost = window.currentLiveHost;
     if (!liveHost) {
-      // Si el usuario es el host, usar su propio nick
       liveHost = myNick;
       window.currentLiveHost = myNick;
     }
@@ -512,15 +526,31 @@ function startWatchingLive(targetUser) {
       from: myNick,
       message: msg
     });
+    // Mostrar inmediatamente el mensaje local para mejor UX
+    displayLiveMsg({ from: myNick, message: msg });
     $('#liveMessage').val("");
   });
 
+
   // Recibir mensaje en el chat de la transmisión
+  // Función para mostrar mensajes en el chat de la transmisión con mismo estilo que el chat global
+  function displayLiveMsg(data) {
+    const isOwn = data.from === localStorage.getItem('chatUser');
+    const $liveChat = $('#liveChat');
+    $liveChat.append(
+      `<div class="chat-msg p-2 bg-dark bg-opacity-75 w-100 text-white rounded-3 mb-1 animate__animated animate__fadeInUp d-flex justify-content-start">
+         <span><b>${data.from}</b>: ${data.message}</span>
+       </div>`
+    );
+    const liveChatElem = $liveChat[0];
+    liveChatElem.scrollTop = liveChatElem.scrollHeight;
+  }
+
   socket.on('live-comment', function(data) {
     // Mostrar si estamos viendo la transmisión de ese host o si el usuario es el host
     const myNick = localStorage.getItem('chatUser');
     if ((window.currentLiveHost && data.host === window.currentLiveHost) || (data.host === myNick)) {
-      $('#liveChat').append(`<div><b>${data.from}:</b> ${data.message}</div>`);
+      displayLiveMsg(data);
       const liveChat = document.getElementById('liveChat');
       liveChat.scrollTop = liveChat.scrollHeight;
     }
@@ -613,5 +643,6 @@ function startWatchingLive(targetUser) {
   $('#toggleLiveBtn').on('click', function() {
     $('#liveStreamSection').removeClass('d-none').show();
     $('#contentWrap').hide();
-  });
+});
+
 });
