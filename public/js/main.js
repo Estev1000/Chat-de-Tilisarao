@@ -188,7 +188,7 @@ socket.on("new message", (data) => {
         <span class='badge bg-secondary ms-2 followers-count' data-user='${data[i]}'>${followersCount} seg.</span>
       </p>`;
     }
-    $users.html(html);
+    $('#userCount').text(data.length);
     $users.html(html);
     // Eliminar la lista secundaria de usuarios en vivo
     if (typeof $liveUsersList !== 'undefined') $liveUsersList.html("");
@@ -372,6 +372,20 @@ socket.on('message-deleted', function(data) {
   const $localVideo = $('#localVideo');
   const $remoteVideo = $('#remoteVideo');
 
+  // Mostrar solo una ventana de video a la vez
+  function showLocal() {
+    $('#localVideoCol').removeClass('d-none');
+    $('#remoteVideoCol').addClass('d-none');
+  }
+  function showRemote() {
+    $('#remoteVideoCol').removeClass('d-none');
+    $('#localVideoCol').addClass('d-none');
+  }
+  function hideVideos() {
+    $('#localVideoCol').addClass('d-none');
+    $('#remoteVideoCol').addClass('d-none');
+  }
+
   $startLiveBtn.on('click', async function() {
     if ($startLiveBtn.text().trim() === 'Iniciar Transmisión' || $startLiveBtn.text().trim() === 'Iniciar transmisión en vivo') {
       $startLiveBtn.prop('disabled', true);
@@ -383,6 +397,7 @@ socket.on('message-deleted', function(data) {
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         $localVideo[0].srcObject = localStream;
         $('#localVideoOverlay').addClass('d-none').hide();
+        showLocal();
         socket.emit('user-started-live', { from: localStorage.getItem('chatUser') });
         $startLiveBtn.addClass('d-none');
         $stopLiveBtn.removeClass('d-none');
@@ -407,6 +422,7 @@ socket.on('message-deleted', function(data) {
     }
     $localVideo[0].srcObject = null;
     $localVideo.hide();
+    hideVideos();
     $('#localVideoOverlay').removeClass('d-none').show();
     $startLiveBtn.text('Iniciar transmisión en vivo');
     socket.emit('user-stopped-live', { from: localStorage.getItem('chatUser') });
@@ -445,6 +461,7 @@ function startWatchingLive(targetUser) {
     window.currentLiveHost = targetUser;
     $('#liveChat').empty();
     $remoteVideo.removeClass('d-none').show();
+    showRemote();
     peerConnection = new RTCPeerConnection(config);
     let remoteTrackReceived = false;
     // Si no se recibe la pista remota en 5 segundos, mostrar advertencia
@@ -516,6 +533,7 @@ function startWatchingLive(targetUser) {
     window.currentLiveHost = null;
     $remoteVideo[0].srcObject = null;
     $remoteVideo.hide();
+    hideVideos();
     if (peerConnection) {
       peerConnection.close();
       peerConnection = null;
