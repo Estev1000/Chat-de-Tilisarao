@@ -89,10 +89,15 @@
     .video-container {
       position: relative;
       overflow: hidden;
-      border-radius: 8px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      background: rgba(0, 0, 0, 0.2);
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     }
+
+    .video-container::before {
+      content: '';
+      position: absolute;
+      top: -2px;
+      left: -2px;
       right: -2px;
       bottom: -2px;
       background: linear-gradient(45deg, #ff006e, #8b5cf6, #06b6d4, #10b981);

@@ -483,7 +483,7 @@ function startWatchingLive(targetUser) {
     const remoteTimeout = setTimeout(() => {
       if (!remoteTrackReceived) {
         $('#liveChat').append('<div class="text-danger">No se pudo conectar con la transmisión de este usuario. Es posible que no haya iniciado correctamente su cámara o la transmisión se haya detenido.</div>');
-        $remoteVideo.hide();
+        // $remoteVideo.hide();  // eliminado para mantener visible el video
       }
     }, 5000);
     peerConnection.ontrack = (event) => {
