@@ -129,26 +129,13 @@ body {
   box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
 }
 
-/* Video Container with Animated Border */
+/* Video Container Simplified */
 .video-container {
   position: relative;
   overflow: hidden;
-  border-radius: 20px;
-  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.3);
-}
-
-.video-container::before {
-  content: '';
-  position: absolute;
-  top: -3px;
-  left: -3px;
-  right: -3px;
-  bottom: -3px;
-  background: linear-gradient(45deg, #ff006e, #8b5cf6, #06b6d4, #10b981, #f59e0b, #ef4444);
-  background-size: 600% 600%;
-  border-radius: 23px;
-  z-index: -1;
-  animation: borderGlow 4s linear infinite;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 @keyframes borderGlow {
