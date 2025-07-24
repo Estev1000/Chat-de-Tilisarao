@@ -7,10 +7,10 @@ const pool = new Pool({
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
-  ssl: process.env.NODE_ENV === "production" ? {
+  ssl: {
     require: true,
     rejectUnauthorized: false
-  } : false
+  }
 });
 
 // Initialize database
