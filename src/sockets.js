@@ -3,6 +3,7 @@ import Chat from './models/Chat.js'
 
 export default io => {
   let users = {};
+  let followersMap = {}; // { user: Set of followers }
 
   io.on('connection', async socket => {
 
@@ -109,6 +110,28 @@ export default io => {
       if (ok) {
         io.sockets.emit('message-deleted', { id: data.id });
       }
+    });
+
+    // --- Follow system ---
+    socket.on('toggle-follow', ({ target, follower }) => {
+      // Evitar que alguien se siga a sí mismo
+      if (target === follower) return;
+      if (!followersMap[target]) followersMap[target] = new Set();
+      const set = followersMap[target];
+      if (set.has(follower)) {
+        set.delete(follower);
+      } else {
+        set.add(follower);
+      }
+      io.sockets.emit('followers-count', { user: target, count: set.size });
+    });
+
+    socket.on('get-followers-map', () => {
+      const counts = {};
+      for (const [user, set] of Object.entries(followersMap)) {
+        counts[user] = set.size;
+      }
+      socket.emit('followers-map', counts);
     });
 
     socket.on('disconnect', data => {

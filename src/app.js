@@ -5,10 +5,36 @@ import crypto from "crypto";
 
 const app = express();
 
+// Configuración de CORS y encabezados de seguridad
+app.use((req, res, next) => {
+  // Permitir acceso desde cualquier origen (en desarrollo)
+  res.header('Access-Control-Allow-Origin', '*');
+  // Métodos permitidos
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
+  // Encabezados permitidos
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  // Permitir credenciales
+  res.header('Access-Control-Allow-Credentials', 'true');
+  // Permitir el uso de la cámara
+  res.header('Permissions-Policy', 'camera=*');
+  // Política de seguridad de contenido
+  res.header('Content-Security-Policy', "default-src 'self' 'unsafe-inline' 'unsafe-eval' *; media-src * data: blob:; connect-src *;");
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 // static files
-app.use(express.static(path.join(import.meta.dirname, "../public")));
+app.use(express.static(path.join(import.meta.dirname, "../public"), {
+  setHeaders: (res) => {
+    res.set('Cross-Origin-Embedder-Policy', 'require-corp');
+    res.set('Cross-Origin-Opener-Policy', 'same-origin');
+  }
+}));
 
 // Ruta principal
 app.get('/', (req, res) => {

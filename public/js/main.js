@@ -17,6 +17,77 @@ function connectSocket() {
 
 const socket = connectSocket();
 
+// --- UTILIDADES COMPARTIR ---
+function generateLiveLink(host) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('watch', host);
+  return url.toString();
+}
+
+async function copyTextToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('Enlace copiado al portapapeles');
+  } catch (err) {
+    console.error(err);
+    prompt('Copia este enlace:', text);
+  }
+}
+
+async function captureVideoFrame(videoElem) {
+  const canvas = document.createElement('canvas');
+  canvas.width = videoElem.videoWidth;
+  canvas.height = videoElem.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+}
+
+function setupShareButtons(hostNick) {
+  const link = generateLiveLink(hostNick);
+  $('#shareWhatsapp').attr('href', `https://wa.me/?text=${encodeURIComponent('Mira mi directo: ' + link)}`);
+  $('#shareFacebook').attr('href', `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`);
+  $('#shareTwitter').attr('href', `https://twitter.com/intent/tweet?text=${encodeURIComponent('Mira mi directo')}&url=${encodeURIComponent(link)}`);
+  $('#copyLink').off('click').on('click', () => copyTextToClipboard(link));
+  // Instagram: captura y share via Web Share API si disponible
+  $('#shareInstagram').off('click').on('click', async () => {
+    const videoElem = ($('#localVideo').is(':visible') ? document.getElementById('localVideo') : document.getElementById('remoteVideo'));
+    if (videoElem && videoElem.readyState >= 2) {
+      const blob = await captureVideoFrame(videoElem);
+      const filesArray = [new File([blob], 'live.png', { type: 'image/png' })];
+      if (navigator.canShare && navigator.canShare({ files: filesArray })) {
+        await navigator.share({ files: filesArray, text: 'Mira mi directo', url: link });
+      } else {
+        // fallback: copy link and open blob in new tab
+        copyTextToClipboard(link);
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+      }
+    } else {
+      copyTextToClipboard(link);
+    }
+  });
+}
+
+// --- Seguidores ---
+// Estructura { usuario: [seguidores] }
+let followersData = {};
+
+socket.on('connect', () => {
+  const loggedUser = localStorage.getItem('chatUser');
+  if (loggedUser) {
+    socket.emit('get-followers-map');
+  }
+});
+
+socket.on('followers-map', (data) => {
+  followersData = data || {};
+});
+
+socket.on('followers-count', ({ user, count }) => {
+  $(`.followers-count[data-user='${user}']`).text(`${count} seg.`);
+});
+
   // obtaining DOM elements from the Chat Interface
   const $messageForm = $("#message-form");
   const $messageBox = $("#message");
@@ -183,12 +254,7 @@ socket.on("new message", (data) => {
     let html = "";
     let liveHtml = "";
     const myNick = localStorage.getItem('chatUser');
-    // Obtener seguidores de localStorage (simulación frontend)
-    let followersData = {};
-    try {
-      followersData = JSON.parse(localStorage.getItem('followersData') || '{}');
-    } catch (e) { followersData = {}; }
-    // MODIFICACIÓN: Mostrar SIEMPRE el badge de seguidores, incluso para el usuario actual
+    // Usar datos de seguidores provenientes del servidor
     for (let i = 0; i < data.length; i++) {
       const isLive = liveUsers.has(data[i]);
       const isMe = myNick === data[i];
@@ -261,29 +327,19 @@ socket.on("new message", (data) => {
   $(document).on('click', '.follow-btn', function(e) {
     e.stopPropagation();
     const user = $(this).data('user');
-    let followersData = {};
-    try {
-      followersData = JSON.parse(localStorage.getItem('followersData') || '{}');
-    } catch (e) { followersData = {}; }
     const myNick = localStorage.getItem('chatUser');
-    if (!followersData[user]) followersData[user] = [];
-    const idx = followersData[user].indexOf(myNick);
-    if (idx === -1) {
-      followersData[user].push(myNick);
+    if (!myNick || user === myNick) return; // Evitar seguirse a sí mismo
+    // Avisar al servidor
+    socket.emit('toggle-follow', {
+      target: user,
+      follower: myNick
+    });
+    // Feedback inmediato en el botón
+    if ($(this).hasClass('btn-outline-light')) {
       $(this).removeClass('btn-outline-light').addClass('btn-success').text('Siguiendo');
     } else {
-      followersData[user].splice(idx, 1);
       $(this).removeClass('btn-success').addClass('btn-outline-light').text('Seguir');
     }
-    localStorage.setItem('followersData', JSON.stringify(followersData));
-    // Actualizar contador visual
-    $(`.followers-count[data-user='${user}']`).text(`${followersData[user].length} seg.`);
-    // Si el usuario actual es el mismo, actualizar su propio contador
-    if ($(`.followers-count[data-user='${myNick}']`).length) {
-      const myFollowers = followersData[myNick] ? followersData[myNick].length : 0;
-      $(`.followers-count[data-user='${myNick}']`).text(`${myFollowers} seg.`);
-    }
-    // TODO: Emitir evento al backend para guardar relación de seguidores
   });
 
   // Evento para enviar mensaje privado desde el modal
@@ -311,6 +367,8 @@ socket.on("new message", (data) => {
 function displayMsg(data) {
     // Usar el id real de la base de datos si existe
     const msgId = (data.id !== undefined && data.id !== null) ? `msgdb-${data.id}` : (data._id || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+    // Evitar mostrar mensajes duplicados
+    if (document.getElementById(msgId)) return;
     const isOwn = data.nick === localStorage.getItem('chatUser');
     let actions = '';
     if (isOwn) {
@@ -413,7 +471,9 @@ socket.on('message-deleted', function(data) {
         $localVideo[0].srcObject = localStream;
         $('#localVideoOverlay').addClass('d-none').hide();
         showLocal();
-        socket.emit('user-started-live', { from: localStorage.getItem('chatUser') });
+        const myNickLive = localStorage.getItem('chatUser');
+        socket.emit('user-started-live', { from: myNickLive });
+        setupShareButtons(myNickLive);
         $startLiveBtn.addClass('d-none');
         $stopLiveBtn.removeClass('d-none');
         $startLiveBtn.prop('disabled', false);
@@ -474,6 +534,7 @@ function startWatchingLive(targetUser) {
     $('#liveStreamSection').removeClass('d-none').show();
     $('#contentWrap').hide();
     window.currentLiveHost = targetUser;
+    setupShareButtons(targetUser);
     $('#liveChat').empty();
     $remoteVideo.removeClass('d-none').show();
     showRemote();
@@ -526,8 +587,6 @@ function startWatchingLive(targetUser) {
       from: myNick,
       message: msg
     });
-    // Mostrar inmediatamente el mensaje local para mejor UX
-    displayLiveMsg({ from: myNick, message: msg });
     $('#liveMessage').val("");
   });
 
