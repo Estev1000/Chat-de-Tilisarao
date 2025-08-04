@@ -1,5 +1,135 @@
 // Versión integrada con streaming + chat
 $(function () {
+  // Referencias a elementos del formulario
+  const $email = $('#email');
+  const $username = $('#username');
+  const $password = $('#password');
+  const $confirmPassword = $('#confirmPassword');
+  const $loginBtn = $('#loginBtn');
+  const $registerBtn = $('#registerBtn');
+  const $toggleAuthBtn = $('#toggleAuthBtn');
+  const $confirmPasswordGroup = $('#confirmPasswordGroup');
+  const $nickError = $('#nickError');
+  
+  // Estado del formulario (login/registro)
+  let isLoginMode = true;
+  
+  // Función para alternar entre login y registro
+  function toggleAuthMode() {
+    isLoginMode = !isLoginMode;
+    if (isLoginMode) {
+      $loginBtn.show();
+      $registerBtn.hide();
+      $confirmPasswordGroup.hide();
+      $toggleAuthBtn.text('¿No tienes una cuenta? Regístrate');
+    } else {
+      $loginBtn.hide();
+      $registerBtn.show();
+      $confirmPasswordGroup.show();
+      $toggleAuthBtn.text('¿Ya tienes una cuenta? Inicia sesión');
+    }
+    $nickError.empty();
+  }
+  
+  // Manejador para alternar entre login/registro
+  $toggleAuthBtn.on('click', toggleAuthMode);
+  
+  // Manejador para el botón de registro
+  $registerBtn.on('click', async function() {
+    const email = $email.val().trim();
+    const username = $username.val().trim();
+    const password = $password.val();
+    const confirmPassword = $confirmPassword.val();
+    
+    // Validaciones básicas
+    if (password !== confirmPassword) {
+      $nickError.html('<div class="alert alert-danger">Las contraseñas no coinciden</div>');
+      return;
+    }
+    
+    if (password.length < 6) {
+      $nickError.html('<div class="alert alert-danger">La contraseña debe tener al menos 6 caracteres</div>');
+      return;
+    }
+    
+    try {
+      // 1. Registrar usuario en Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username
+          }
+        }
+      });
+      
+      if (authError) throw authError;
+      
+      // 2. Crear perfil en la tabla profiles
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert([
+          { 
+            id: authData.user.id, 
+            username: username,
+            email: email,
+            created_at: new Date()
+          }
+        ]);
+      
+      if (profileError) throw profileError;
+      
+      // 3. Iniciar sesión automáticamente
+      await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+      
+      // 4. Conectar al chat
+      connectUserToChat(username);
+      
+    } catch (error) {
+      console.error('Error en el registro:', error);
+      $nickError.html(`<div class="alert alert-danger">${error.message || 'Error en el registro'}</div>`);
+    }
+  });
+  
+  // Manejador para el formulario de login
+  $('form#authForm').on('submit', async function(e) {
+    e.preventDefault();
+    
+    const email = $email.val().trim();
+    const password = $password.val();
+    
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+      
+      if (error) throw error;
+      
+      // Obtener el perfil del usuario
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('id', data.user.id)
+        .single();
+      
+      if (profileError) throw profileError;
+      
+      // Conectar al chat con el nombre de usuario
+      connectUserToChat(profile.username);
+      
+    } catch (error) {
+      console.error('Error en el inicio de sesión:', error);
+      $nickError.html(`<div class="alert alert-danger">${error.message || 'Error en el inicio de sesión'}</div>`);
+    }
+  });
+  
+  // Inicializar en modo login
+  toggleAuthMode();
   // socket.io client side connection
   let reconnectAttempts = 0;
 
@@ -96,11 +226,9 @@ socket.on('followers-count', ({ user, count }) => {
 
   // obteniendo elementos del formulario de autenticación
   const $authForm = $("#authForm");
-  const $nickError = $("#nickError");
+  // Las siguientes variables ya están declaradas al inicio del archivo:
+  // $nickError, $password, $loginBtn, $registerBtn
   const $nickname = $("#nickname");
-  const $password = $("#password");
-  const $loginBtn = $("#loginBtn");
-  const $registerBtn = $("#registerBtn");
 
   // obtaining the usernames container DOM
   const $users = $("#usernames");
@@ -109,29 +237,54 @@ socket.on('followers-count', ({ user, count }) => {
   // --- INICIO: Persistencia de sesión ---
 
   // Función para verificar sesión existente al cargar la página
-  function checkExistingSession() {
-    const savedUser = localStorage.getItem('chatUser');
-    const sessionToken = localStorage.getItem('sessionToken');
-    if (savedUser && sessionToken) {
+  async function checkExistingSession() {
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (session) {
       $nickError.html('<div class="alert alert-info">Verificando sesión...</div>');
-      $.post('/verify-session', { nick: savedUser, token: sessionToken }, function (data) {
-        if (data.success) {
-          connectUserToChat(savedUser);
-        } else {
-          clearSession();
-          $nickError.html('<div class="alert alert-warning">Sesión expirada, por favor inicia sesión nuevamente.</div>');
-        }
-      }).fail(function() {
+      try {
+        // Obtener el perfil del usuario
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('username')
+          .eq('id', session.user.id)
+          .single();
+          
+        if (error) throw error;
+        
+        // Conectar al chat con el nickname del perfil
+        connectUserToChat(profile.username);
+      } catch (error) {
+        console.error('Error al cargar el perfil:', error);
         clearSession();
-        $nickError.html('<div class="alert alert-danger">Error verificando sesión, por favor inicia sesión.</div>');
-      });
+        $nickError.html('<div class="alert alert-danger">Error al cargar el perfil del usuario.</div>');
+      }
     }
   }
 
   // Función para limpiar datos de sesión
-  function clearSession() {
+  async function clearSession() {
+    await supabase.auth.signOut();
     localStorage.removeItem('chatUser');
     localStorage.removeItem('sessionToken');
+    
+    // Resetear el estado del usuario
+    currentUser = {
+      nickname: null,
+      followersCount: 0,
+      followingCount: 0,
+      followingList: [],
+      followersList: []
+    };
+    
+    // Mostrar el formulario de inicio de sesión
+    $("#nickWrap").show();
+    document.querySelector("#contentWrap").style.display = "none";
+    
+    // Notificar al servidor que el usuario se desconectó
+    if (socket && socket.connected) {
+      socket.emit('user disconnect');
+    }
   }
 
   // Almacenar datos del usuario actual
@@ -247,7 +400,7 @@ socket.on('followers-count', ({ user, count }) => {
   }
 
   // Función para conectar usuario al chat
-  function connectUserToChat(nick) {
+  async function connectUserToChat(nick) {
     console.log('Conectando usuario:', nick);
     
     // Resetear datos del usuario actual
@@ -259,11 +412,25 @@ socket.on('followers-count', ({ user, count }) => {
       followersList: []
     };
     
-    // Configurar el usuario en el socket
-    socket.emit('new user', nick, function(valid) {
-      if (!valid) {
-        alert('¡El nombre de usuario ya está en uso!');
-        return;
+    try {
+      // Verificar si el usuario ya está en uso
+      const { data: existingUser, error: userError } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('username', nick)
+        .single();
+      
+      if (userError && userError.code !== 'PGRST116') { // PGRST116 = no se encontraron resultados
+        throw userError;
+      }
+      
+      if (existingUser) {
+        // Verificar si el usuario actual es el mismo que está intentando conectarse
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || existingUser.id !== user.id) {
+          alert('¡El nombre de usuario ya está en uso!');
+          return;
+        }
       }
       
       console.log('Usuario válido, guardando en localStorage...');
@@ -278,10 +445,23 @@ socket.on('followers-count', ({ user, count }) => {
       $("#logoutBtn").show();
       $nickError.html('');
       
-      console.log('Solicitando datos de seguidores para:', nick);
-      // Solicitar datos de seguidores
-      socket.emit('get-followers-data', { user: nick });
-    });
+      // Configurar el usuario en el socket
+      socket.emit('new user', nick, function(valid) {
+        if (!valid) {
+          alert('¡Error al conectar con el servidor de chat!');
+          return;
+        }
+        
+        console.log('Solicitando datos de seguidores para:', nick);
+        // Solicitar datos de seguidores
+        socket.emit('get-followers-data', { user: nick });
+      });
+      
+    } catch (error) {
+      console.error('Error al conectar al chat:', error);
+      alert('Error al conectar al chat. Por favor, inténtalo de nuevo.');
+      clearSession();
+    }
   }
 
   // Verificar sesión al cargar la página
