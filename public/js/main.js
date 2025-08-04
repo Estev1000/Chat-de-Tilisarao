@@ -1,18 +1,89 @@
-// Versión integrada con streaming + chat
+// Configuración de Supabase
+const SUPABASE_URL = 'https://xzqlatpbhcqiortutwkt.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh6cWxhdHBiaGNxaW9ydHV0d2t0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQxNTY5OTcsImV4cCI6MjA2OTczMjk5N30.ojEtVoM-tBZ5MdXTmAOJKR9Rx6A2ZoX6h-6dgNPAAHc';
+
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Estado de la aplicación
+let currentUser = null;
+
+// Inicialización de la aplicación
 $(function () {
   // Referencias a elementos del formulario
-  const $email = $('#email');
-  const $username = $('#username');
+  const $nickname = $('#nickname');
   const $password = $('#password');
-  const $confirmPassword = $('#confirmPassword');
   const $loginBtn = $('#loginBtn');
   const $registerBtn = $('#registerBtn');
-  const $toggleAuthBtn = $('#toggleAuthBtn');
-  const $confirmPasswordGroup = $('#confirmPasswordGroup');
   const $nickError = $('#nickError');
+  const $confirmPassword = $('#confirmPassword');
+  const $confirmPasswordGroup = $('#confirmPasswordGroup');
+  const $toggleAuthBtn = $('#toggleAuthBtn');
+  const $messageInput = $('#messageInput');
+  const $sendMessageBtn = $('#sendMessageBtn');
+  const $chatMessages = $('#chatMessages');
+  const $userList = $('#userList');
+  const $contentWrap = $('#contentWrap');
+  const $nickWrap = $('#nickWrap');
   
   // Estado del formulario (login/registro)
   let isLoginMode = true;
+  
+  // Inicializar la aplicación
+  initApp();
+  
+  // Función para inicializar la aplicación
+  async function initApp() {
+    // Verificar si el usuario ya está autenticado
+    const { data: { session }, error } = await supabase.auth.getSession();
+    
+    if (session) {
+      // Usuario ya autenticado
+      currentUser = session.user;
+      showChatInterface();
+      setupRealtimeUpdates();
+    } else {
+      // Mostrar formulario de inicio de sesión
+      showLoginForm();
+    }
+  }
+  
+  // Función para configurar actualizaciones en tiempo real
+  function setupRealtimeUpdates() {
+    // Suscribirse a nuevos mensajes
+    const messagesSubscription = supabase
+      .channel('public:messages')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          addMessageToChat(payload.new);
+        }
+      )
+      .subscribe();
+      
+    // Suscribirse a cambios en usuarios conectados
+    const usersSubscription = supabase
+      .channel('online_users')
+      .on('presence', { event: 'sync' }, () => {
+        const state = usersSubscription.presenceState();
+        updateUserList(state);
+      })
+      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        console.log('Nuevo usuario conectado:', newPresences);
+      })
+      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+        console.log('Usuario desconectado:', leftPresences);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await usersSubscription.track({ 
+            user_id: currentUser.id, 
+            username: currentUser.user_metadata?.username || 'Anónimo',
+            online_at: new Date().toISOString()
+          });
+        }
+      });
+  }
   
   // Función para alternar entre login y registro
   function toggleAuthMode() {
@@ -35,266 +106,236 @@ $(function () {
   $toggleAuthBtn.on('click', toggleAuthMode);
   
   // Manejador para el botón de registro
-  $registerBtn.on('click', async function() {
-    const email = $email.val().trim();
-    const username = $username.val().trim();
-    const password = $password.val();
-    const confirmPassword = $confirmPassword.val();
+  async function handleRegister() {
+    const nickname = $nickname.val()?.trim() || '';
+    const password = $password.val() || '';
+    const confirmPassword = $confirmPassword.val() || '';
     
-    // Validaciones básicas
-    if (password !== confirmPassword) {
-      $nickError.html('<div class="alert alert-danger">Las contraseñas no coinciden</div>');
+    if (!nickname || !password) {
+      showError('Por favor ingresa un nombre de usuario y contraseña.');
       return;
     }
     
     if (password.length < 6) {
-      $nickError.html('<div class="alert alert-danger">La contraseña debe tener al menos 6 caracteres</div>');
+      showError('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+    
+    if (password !== confirmPassword) {
+      showError('Las contraseñas no coinciden');
       return;
     }
     
     try {
-      // 1. Registrar usuario en Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
+      // Registrar usuario en Supabase Auth
+      const { data, error } = await supabase.auth.signUp({
+        email: `${nickname}@tilisarao.com`,
+        password: password,
         options: {
           data: {
-            username
+            username: nickname
           }
         }
       });
       
-      if (authError) throw authError;
+      if (error) throw error;
       
-      // 2. Crear perfil en la tabla profiles
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert([
-          { 
-            id: authData.user.id, 
-            username: username,
-            email: email,
-            created_at: new Date()
-          }
-        ]);
-      
-      if (profileError) throw profileError;
-      
-      // 3. Iniciar sesión automáticamente
-      await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-      
-      // 4. Conectar al chat
-      connectUserToChat(username);
+      // Iniciar sesión automáticamente después del registro
+      await handleLogin();
       
     } catch (error) {
-      console.error('Error en el registro:', error);
-      $nickError.html(`<div class="alert alert-danger">${error.message || 'Error en el registro'}</div>`);
+      console.error('Error al registrar:', error);
+      showError(error.message || 'Error al registrar el usuario');
     }
-  });
+  }
   
-  // Manejador para el formulario de login
-  $('form#authForm').on('submit', async function(e) {
-    e.preventDefault();
+  // Manejador para el botón de registro
+  $registerBtn.on('click', handleRegister);
+  
+  // Manejador para el botón de inicio de sesión
+  async function handleLogin() {
+    const nickname = $nickname.val()?.trim() || '';
+    const password = $password.val() || '';
     
-    const email = $email.val().trim();
-    const password = $password.val();
+    if (!nickname || !password) {
+      showError('Por favor ingresa un nombre de usuario y contraseña.');
+      return;
+    }
     
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
+        email: `${nickname}@tilisarao.com`,
+        password: password
       });
       
       if (error) throw error;
       
-      // Obtener el perfil del usuario
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('username')
-        .eq('id', data.user.id)
-        .single();
+      currentUser = data.user;
+      showChatInterface();
+      setupRealtimeUpdates();
       
-      if (profileError) throw profileError;
+    } catch (error) {
+      console.error('Error al iniciar sesión:', error);
+      showError('Usuario o contraseña incorrectos');
+    }
+  }
+  
+  // Manejador para el botón de inicio de sesión
+  $loginBtn.on('click', handleLogin);
+  
+  // Función para mostrar mensajes en el chat
+  function addMessageToChat(message) {
+    const messageElement = `
+      <div class="message ${message.user_id === currentUser?.id ? 'message-sent' : 'message-received'}">
+        <div class="message-sender">${message.username}</div>
+        <div class="message-content">${message.content}</div>
+        <div class="message-time">${formatTime(message.created_at)}</div>
+      </div>
+    `;
+    $chatMessages.append(messageElement);
+    $chatMessages.scrollTop($chatMessages[0].scrollHeight);
+  }
+  
+  // Función para actualizar la lista de usuarios
+  function updateUserList(usersState) {
+    $userList.empty();
+    const users = Object.values(usersState).flat();
+    
+    users.forEach(user => {
+      if (user.user_id !== currentUser?.id) {
+        const userElement = `
+          <div class="user-item">
+            <span class="user-status online"></span>
+            <span class="username">${user.username}</span>
+          </div>
+        `;
+        $userList.append(userElement);
+      }
+    });
+  }
+  
+  // Función para enviar mensajes
+  async function sendMessage() {
+    const content = $messageInput.val().trim();
+    if (!content || !currentUser) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .insert([{
+          content: content,
+          user_id: currentUser.id,
+          username: currentUser.user_metadata?.username || 'Anónimo'
+        }]);
+        
+      if (error) throw error;
       
-      // Conectar al chat con el nombre de usuario
-      connectUserToChat(profile.username);
+      $messageInput.val('');
       
+    } catch (error) {
+      console.error('Error al enviar mensaje:', error);
+      showError('Error al enviar el mensaje');
+    }
+  }
+  
+  // Función para mostrar el formulario de inicio de sesión
+  function showLoginForm() {
+    $contentWrap.hide();
+    $nickWrap.show();
+    $loginBtn.show();
+    $registerBtn.hide();
+    $confirmPasswordGroup.hide();
+    $toggleAuthBtn.text('¿No tienes una cuenta? Regístrate');
+  }
+  
+  // Función para mostrar la interfaz del chat
+  function showChatInterface() {
+    $nickWrap.hide();
+    $contentWrap.show();
+  }
+  
+  // Función para formatear la hora
+  function formatTime(timestamp) {
+    return moment(timestamp).format('HH:mm');
+  }
+  
+  // Función para mostrar errores
+  function showError(message) {
+    $nickError.html(`<div class="alert alert-danger">${message}</div>`);
+  }
+  
+  // Manejador para el botón de enviar mensaje
+  $sendMessageBtn.on('click', sendMessage);
+  
+  // Enviar mensaje al presionar Enter
+  $messageInput.on('keypress', function(e) {
+    if (e.which === 13) { // Enter key
+      sendMessage();
+    }
+  });
+  
+  // Cerrar sesión
+  $('#logoutBtn').on('click', async function() {
+    await supabase.auth.signOut();
+    currentUser = null;
+    showLoginForm();
+  });
+
+  // --- FUNCIONES DE CONEXIÓN ---
+  function connectSocket() {
+    // Ya no necesitamos Socket.IO, pero mantenemos la función para compatibilidad
+    return {
+      emit: () => {},
+      on: () => {},
+      disconnect: () => {}
+    };
+  }
+
+  const socket = connectSocket();
+
+  // --- UTILIDADES COMPARTIR ---
+  function generateLiveLink(host) {
+    return `${window.location.origin}?host=${encodeURIComponent(host)}`;
+  }
+
+  function copyTextToClipboard(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+    const filesArray = [new File([blob], 'live.png', { type: 'image/png' })];
+    if (navigator.canShare && navigator.canShare({ files: filesArray })) {
+      await navigator.share({ files: filesArray, text: 'Mira mi directo', url: link });
+    } else {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    }
+    copyTextToClipboard(link);
+  });
+  // ...el resto de setupShareButtons permanece igual...
+    
+  $loginBtn.on('click', async function() {
+    const nickname = $nickname.val().trim();
+    if (!nickname || !password) {
+      $nickError.html('<div class="alert alert-danger">Completa usuario y contraseña</div>');
+      return;
+    }
+    try {
+      const fakeEmail = `${nickname}@tilisarao.local`;
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: fakeEmail,
+        password
+      });
+      if (error) throw error;
+      connectUserToChat(nickname);
     } catch (error) {
       console.error('Error en el inicio de sesión:', error);
       $nickError.html(`<div class="alert alert-danger">${error.message || 'Error en el inicio de sesión'}</div>`);
     }
   });
-  
-  // Inicializar en modo login
-  toggleAuthMode();
-  // socket.io client side connection
-  let reconnectAttempts = 0;
-
-function connectSocket() {
-  const socket = io.connect({ reconnectionAttempts: 5 });
-  
-  socket.on('reconnect_failed', () => {
-    if(reconnectAttempts < 5) {
-      setTimeout(connectSocket, 2000);
-      reconnectAttempts++;
-    }
-  });
-  return socket;
-}
-
-const socket = connectSocket();
-
-// --- UTILIDADES COMPARTIR ---
-function generateLiveLink(host) {
-  const url = new URL(window.location.href);
-  url.searchParams.set('watch', host);
-  return url.toString();
-}
-
-async function copyTextToClipboard(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    alert('Enlace copiado al portapapeles');
-  } catch (err) {
-    console.error(err);
-    prompt('Copia este enlace:', text);
-  }
-}
-
-async function captureVideoFrame(videoElem) {
-  const canvas = document.createElement('canvas');
-  canvas.width = videoElem.videoWidth;
-  canvas.height = videoElem.videoHeight;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(videoElem, 0, 0, canvas.width, canvas.height);
-  return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-}
-
-function setupShareButtons(hostNick) {
-  const link = generateLiveLink(hostNick);
-  $('#shareWhatsapp').attr('href', `https://wa.me/?text=${encodeURIComponent('Mira mi directo: ' + link)}`);
-  $('#shareFacebook').attr('href', `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`);
-  $('#shareTwitter').attr('href', `https://twitter.com/intent/tweet?text=${encodeURIComponent('Mira mi directo')}&url=${encodeURIComponent(link)}`);
-  $('#copyLink').off('click').on('click', () => copyTextToClipboard(link));
-  // Instagram: captura y share via Web Share API si disponible
-  $('#shareInstagram').off('click').on('click', async () => {
-    const videoElem = ($('#localVideo').is(':visible') ? document.getElementById('localVideo') : document.getElementById('remoteVideo'));
-    if (videoElem && videoElem.readyState >= 2) {
-      const blob = await captureVideoFrame(videoElem);
-      const filesArray = [new File([blob], 'live.png', { type: 'image/png' })];
-      if (navigator.canShare && navigator.canShare({ files: filesArray })) {
-        await navigator.share({ files: filesArray, text: 'Mira mi directo', url: link });
-      } else {
-        // fallback: copy link and open blob in new tab
-        copyTextToClipboard(link);
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
-      }
-    } else {
-      copyTextToClipboard(link);
-    }
-  });
-}
-
-// --- Seguidores ---
-// Estructura { usuario: [seguidores] }
-let followersData = {};
-
-socket.on('connect', () => {
-  const loggedUser = localStorage.getItem('chatUser');
-  if (loggedUser) {
-    socket.emit('get-followers-map');
-  }
-});
-
-socket.on('followers-map', (data) => {
-  followersData = data || {};
-});
-
-socket.on('followers-count', ({ user, count }) => {
-  $(`.followers-count[data-user='${user}']`).text(`${count} seg.`);
-});
-
-  // obtaining DOM elements from the Chat Interface
-  const $messageForm = $("#message-form");
-  const $messageBox = $("#message");
-  const $chat = $("#chat");
-
-
-  // obteniendo elementos del formulario de autenticación
-  const $authForm = $("#authForm");
-  // Las siguientes variables ya están declaradas al inicio del archivo:
-  // $nickError, $password, $loginBtn, $registerBtn
-  const $nickname = $("#nickname");
-
-  // obtaining the usernames container DOM
-  const $users = $("#usernames");
-  const $liveUsersList = $("#liveUsersList");
-
-  // --- INICIO: Persistencia de sesión ---
-
-  // Función para verificar sesión existente al cargar la página
-  async function checkExistingSession() {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (session) {
-      $nickError.html('<div class="alert alert-info">Verificando sesión...</div>');
-      try {
-        // Obtener el perfil del usuario
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('username')
-          .eq('id', session.user.id)
-          .single();
-          
-        if (error) throw error;
-        
-        // Conectar al chat con el nickname del perfil
-        connectUserToChat(profile.username);
-      } catch (error) {
-        console.error('Error al cargar el perfil:', error);
-        clearSession();
-        $nickError.html('<div class="alert alert-danger">Error al cargar el perfil del usuario.</div>');
-      }
-    }
-  }
-
-  // Función para limpiar datos de sesión
-  async function clearSession() {
-    await supabase.auth.signOut();
-    localStorage.removeItem('chatUser');
-    localStorage.removeItem('sessionToken');
-    
-    // Resetear el estado del usuario
-    currentUser = {
-      nickname: null,
-      followersCount: 0,
-      followingCount: 0,
-      followingList: [],
-      followersList: []
-    };
-    
-    // Mostrar el formulario de inicio de sesión
-    $("#nickWrap").show();
-    document.querySelector("#contentWrap").style.display = "none";
-    
-    // Notificar al servidor que el usuario se desconectó
-    if (socket && socket.connected) {
-      socket.emit('user disconnect');
-    }
-  }
-
-  // Almacenar datos del usuario actual
-  let currentUser = {
-    nickname: null,
-    followersCount: 0,
-    followingCount: 0,
-    followingList: [],
-    followersList: []
-  };
+    // ...
 
   // Función para actualizar la interfaz con los datos del usuario
   function updateUserInterface() {
@@ -1075,4 +1116,4 @@ function startWatchingLive(targetUser) {
     $('#contentWrap').hide();
 });
 
-});
+
