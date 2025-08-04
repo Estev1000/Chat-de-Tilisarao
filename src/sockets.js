@@ -94,38 +94,34 @@ export default io => {
       } else {
         msg = (data.msg || '').trim();
       }
-      try {
-        if (msg.substr(0, 3) === '/w ') {
-          let privMsg = msg.substr(3);
-          let index = privMsg.indexOf(' ');
-          if(index !== -1) {
-            let name = privMsg.substring(0, index);
-            let realMsg = privMsg.substring(index + 1);
-            if (name in users) {
-              users[name].emit('whisper', {
-                msg: realMsg,
-                nick: socket.nickname 
-              });
-            } else {
-              cb('Error! Enter a valid User');
-            }
+
+      if (msg.substr(0, 3) === '/w ') {
+        let privMsg = msg.substr(3);
+        let index = privMsg.indexOf(' ');
+        if(index !== -1) {
+          let name = privMsg.substring(0, index);
+          let realMsg = privMsg.substring(index + 1);
+          if (name in users) {
+            users[name].emit('whisper', {
+              msg: realMsg,
+              nick: socket.nickname 
+            });
           } else {
-            cb('Error! Please enter your message');
+            cb('Error! Enter a valid User');
           }
         } else {
-          const saved = await Chat.save({
-            msg,
-            nick: socket.nickname
-          });
-          io.sockets.emit('new message', {
-            msg: saved.msg,
-            nick: saved.nick,
-            id: saved.id // Usar el id real de la base de datos
-          });
+          cb('Error! Please enter your message');
         }
-      } catch (err) {
-        console.error('Error en send message:', err);
-        cb('Error al enviar el mensaje');
+      } else {
+        const saved = await Chat.save({
+          msg,
+          nick: socket.nickname
+        });
+        io.sockets.emit('new message', {
+          msg: saved.msg,
+          nick: saved.nick,
+          id: saved.id // Usar el id real de la base de datos
+        });
       }
     });
 
@@ -133,32 +129,22 @@ export default io => {
     socket.on('edit-message', async (data) => {
       // data: { id, dbId, newMsg }
       // Solo puede editar su propio mensaje
-      try {
-        const dbId = parseInt(data.dbId);
-        if (!dbId) return;
-        const ok = await Chat.updateMsg(dbId, data.newMsg, socket.nickname);
-        if (ok) {
-          io.sockets.emit('message-edited', { id: data.id, newMsg: data.newMsg });
-        }
-      } catch (err) {
-        console.error('Error en edit-message:', err);
-        socket.emit('edit-error', { message: 'Error al editar el mensaje' });
+      const dbId = parseInt(data.dbId);
+      if (!dbId) return;
+      const ok = await Chat.updateMsg(dbId, data.newMsg, socket.nickname);
+      if (ok) {
+        io.sockets.emit('message-edited', { id: data.id, newMsg: data.newMsg });
       }
     });
 
     // Eliminar mensaje
     socket.on('delete-message', async (data) => {
       // data: { id, dbId }
-      try {
-        const dbId = parseInt(data.dbId);
-        if (!dbId) return;
-        const ok = await Chat.deleteMsg(dbId, socket.nickname);
-        if (ok) {
-          io.sockets.emit('message-deleted', { id: data.id });
-        }
-      } catch (err) {
-        console.error('Error en delete-message:', err);
-        socket.emit('delete-error', { message: 'Error al eliminar el mensaje' });
+      const dbId = parseInt(data.dbId);
+      if (!dbId) return;
+      const ok = await Chat.deleteMsg(dbId, socket.nickname);
+      if (ok) {
+        io.sockets.emit('message-deleted', { id: data.id });
       }
     });
 

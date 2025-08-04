@@ -1,26 +1,18 @@
-import { supabase } from '../supabaseClient.js';
+import pool from '../database.js';
 import bcrypt from 'bcryptjs';
 
 class User {
   static async create({ nick, password }) {
     const hash = await bcrypt.hash(password, 10);
-    const { data, error } = await supabase
-      .from('users')
-      .insert([{ nick, password: hash }])
-      .select('id, nick')
-      .single();
-    if (error) throw error;
-    return data;
+    const query = 'INSERT INTO users (nick, password) VALUES ($1, $2) RETURNING id, nick';
+    const result = await pool.query(query, [nick, hash]);
+    return result.rows[0];
   }
 
   static async findByNick(nick) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('nick', nick)
-      .single();
-    if (error) return null;
-    return data;
+    const query = 'SELECT * FROM users WHERE nick = $1';
+    const result = await pool.query(query, [nick]);
+    return result.rows[0];
   }
 
   static async validatePassword(nick, password) {

@@ -7,8 +7,10 @@ const pool = new Pool({
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
-  // Desactivar SSL para conexión local y evitar error
-  ssl: false
+  ssl: {
+    require: true,
+    rejectUnauthorized: false
+  }
 });
 
 // Initialize database
