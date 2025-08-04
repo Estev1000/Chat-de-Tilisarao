@@ -22,13 +22,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 
   <!-- Main CSS -->
-  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="public/css/main.css" />
 
   <style>
     * {
       font-family: 'Inter', sans-serif;
     }
-    
+   r
     body {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
@@ -476,14 +476,19 @@
   </div>
 
   <!-- Scripts -->
+  <!-- 1. jQuery -->
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script src="/socket.io/socket.io.js"></script>
+  
+  <!-- 2. Socket.IO -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  
+  <!-- 3. Emoji Button -->
   <script src="https://cdn.jsdelivr.net/npm/@joeattardi/emoji-button@4.6.4/dist/emoji-button.min.js"></script>
+  
+  <!-- 4. Bootstrap Bundle with Popper -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <!-- <script src="/js/main-modern.js"></script> -->
-  <script src="/js/main.js"></script>
-
-  <!-- Supabase -->
+  
+  <!-- 5. Supabase JS -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     // Configuración de Supabase
@@ -492,7 +497,13 @@
     
     // Inicializar Supabase
     const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    
+    // Hacer que supabase esté disponible globalmente para depuración
+    window.supabase = supabase;
   </script>
+  
+  <!-- 6. Main JS -->
+  <script src="public/js/main.js"></script>
 
   <script>
     // Create floating particles
